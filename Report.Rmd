@@ -1,0 +1,631 @@
+---
+author: "Kate Konrad"
+date: "`r Sys.Date()`"
+output: html_document
+# runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Results {.tabset}
+
+Here, we present the results of for the analysis of the data. This output includes:
+
+- A heatmap of the data values
+
+- Parameter significance plots
+
+- The percent of variation explained by notable PCs
+
+- ANOVA tests for notable PCs
+
+- Tukey pairwise comparison testing for notable PCs
+
+- PC loading plots colored by Variable Type and Covariate Signifiance
+
+- Boxplots of notable PC scores
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+# This file calls the preparation.R function, which pulls our libraries and our Excel datasheets.
+# It pulls the main dataset.
+# It runs an ANOVA of the main dataset variables.
+# It assigns colors for the various output plots.
+# It manipulates the data into the form needed for the correlation analysis.
+source("preparation data.R")
+```
+---
+title: "Report - PCA for `r titleName`"
+---
+`r introduction`
+
+`r litterMessage`
+
+Variables that are used in the analysis include `r mapSex` and `r mapDrug` (with possible values of `r doseLevels`) and their interactions.
+
+## Data {.tabset}
+
+This dataset was called `r dataPath`. First, we looked at a heatmap of the data, followed by removing variables that are highly correlated. `r litterMessage`
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+source("correlation.R")
+# This provides a dataset called PCA_set that has removed any highly correlated variables.
+```
+
+### Excluded variables
+There were `r nrow(excludedVars)` variables that were intentionally removed from analysis. These were:
+```{r}
+names(excludedVars %>%
+  mutate(temp = 1) %>%
+  pivot_wider(names_from = `Parameter and Unit`, values_from = temp))
+```
+
+There were `r sum(missing)` variables that have a missing value and must be removed from the PCA. These were:
+```{r}
+names(wide_logged_int[,missing])
+```
+
+
+At correlation cutoff value `r correlationCutoff`, the following variables were removed from the PCA: 
+```{r}
+if(ncol(wide_logged_for_corr[,Hc]) == 0){
+  print("No variables were removed; all were below the correlation cutoff value.")
+} else{
+  names(wide_logged_for_corr[,Hc])
+}
+```
+
+### Heatmaps
+
+```{r, fig.width = 8, fig.height = 6}
+
+Heatmap
+
+```
+
+```{r, fig.width = 8, fig.height = 4}
+
+Heatmap_avg
+
+```
+
+```{r, fig.width = 8, fig.height = 8}
+
+Heatmap_tilted
+
+```
+
+```{r, fig.width = 7, fig.height = 8}
+
+Heatmap_avg_tilted
+
+```
+
+### Clustered Heatmap
+
+```{r, fig.width = 11, fig.height = 11}
+Cluster_Heatmap
+```
+
+```{r, fig.width = 11, fig.height = 11}
+Cluster_Heatmap_Avg
+```
+
+## ANOVA of main variables {.tabset}
+
+A colored box indicates that the variable was significant at the 0.05 level.
+
+`r litterMessageANOVA`
+
+The model results shown below are from a nested model - first interaction models are performed, and if the interaction is not significant, then additive models are performed.If Interaction p-value is significant (alpha < 0.05), then the main effect p-values are from that interaction model. If the Interaction p-value is not significant, the the main effect p-values are from an additive model.
+
+### Graphical Results
+
+The nested model structure can be visualized below. A significant interaction term from an interaction model is in its parameter type color (green, purple, etc.). The other terms in the interaction model (sex and `r mapDrug`) are grey if not significant and colorful if significant. A non-significant interaction model is replaced with an additive model. Additive models have a white interaction as a placeholder (there is no interaction in the additive model). Otherwise, the main terms are grey if not significant and colorful if significant.
+
+Colorful - significant term
+Grey - non-significant term in the model
+White - term not in model (additive)
+
+The two plots below show the same model output, but the first is filtered for those variables that had a significant `r mapDrug` term or a significant interaction term. The second plot shows all variables.
+
+```{r partial ANOVA significance plot}
+ANOVA_signif %>% 
+  merge(Parameter_Metadata, by = "Parameter and Unit") %>%
+  shortenParameters() %>%
+  filter(Drug_p <= 0.05 | Sex_by_Drug_p <= 0.05) %>%
+  pivot_longer(cols = 2:4, names_to = "Variable", values_to = "p") %>%
+  mutate(Signif = case_when(p<= 0.05 ~ Parameter_Type_Color,
+                            (p > 0.05 | is.na(p)) & Variable== "Sex_by_Drug_p" ~ "white",
+                            TRUE ~ "lightgrey"),
+         Variable = factor(Variable, levels = c("Sex_p", "Drug_p", "Sex_by_Drug_p"), labels = c("Sex", mapDrug, "Interaction"))) %>%
+  ggplot(aes(x = Variable, y = reorder(`Parameter Short`, Parameter_Order), fill = Signif)) +
+  geom_tile() +
+  scale_fill_identity() +
+  labs(
+    title = paste("ANOVA results, Significant", mapDrug, "or Interaction", sep = " "),
+    y = "",
+    x = "Significant P-value"
+  )
+
+```
+```{r full ANOVA significance plot, fig.width = 8, fig.height = 9}
+
+IncludedParameterTypes <- ANOVA_signif %>% 
+  merge(Parameter_Metadata, by = "Parameter and Unit", all.x = TRUE) %>%
+  filter(Drug_p <= 0.05 | Sex_by_Drug_p <= 0.05 | Sex_p <= 0.05) %>% 
+  dplyr::select(`Parameter Type`) %>%
+  unique()
+
+ParameterTypesToInclude <- unlist(Parameter_Type_Colors_nameList) %in% unlist(IncludedParameterTypes)
+Parameter_Type_Colors_nameList_ANOVA <- Parameter_Type_Colors_nameList[ParameterTypesToInclude]
+Parameter_Type_Colors_colList_ANOVA <- Parameter_Type_Colors_colList[ParameterTypesToInclude]
+
+ANOVA_signif %>% 
+  merge(Parameter_Metadata, by = "Parameter and Unit", all.x = TRUE) %>%
+  shortenParameters() %>%
+  filter(Drug_p <= 0.05 | Sex_by_Drug_p <= 0.05 | Sex_p <= 0.05) %>% 
+  pivot_longer(cols = 2:4, names_to = "Variable", values_to = "p") %>%
+  mutate(Signif = case_when(p<= 0.05 ~ Parameter_Type_Color,
+                            (p > 0.05 | is.na(p)) & Variable== "Sex_by_Drug_p" ~ "white",
+                            TRUE ~ "lightgrey"),
+         Variable = factor(Variable, levels = c("Sex_p", "Drug_p", "Sex_by_Drug_p"), labels = c("Sex", mapDrug, "Interaction"))) %>%
+  ggplot(aes(x = Variable, y = reorder(`Parameter Short`, Parameter_Order), fill = Signif)) +
+  geom_tile() +
+  scale_fill_identity(guide = "legend", labels = c(Parameter_Type_Colors_nameList_ANOVA, "", "")) +
+  guides(fill = guide_legend(
+      title = "",
+      override.aes = list(fill = c(Parameter_Type_Colors_colList_ANOVA,"lightgrey", "white"))
+    )) +
+  theme(legend.position = "top") +
+  labs(
+    title = "ANOVA results",
+    y = "",
+    x = "Significant P-value"
+  )
+
+```
+
+### Tabular Results
+
+
+The results below are filtered for a significant genotype or interaction term. For the full results, consult the Excel tables.
+
+```{r, warning = FALSE, echo = FALSE, message = FALSE}
+
+ANOVA_pairwise %>%
+  filter(Drug_p <0.05 | Sex_by_Drug_p <0.05) %>%
+  gt() %>%
+  row_order(Drug_p) %>%
+  tab_header(
+    title = "ANOVA results"
+  ) %>%
+  tab_spanner(
+    label = "ANOVA p-values",
+    columns = c(Sex_p, Drug_p, Sex_by_Drug_p)
+  )  %>%
+  cols_label(
+    RE_percent = "Litter Effect % Variation",
+    Sex_p = "Sex",
+    Drug_p = mapDrug,
+    Sex_by_Drug_p = paste("Sex x", mapDrug, sep = " ")
+  ) %>%
+  fmt_number(columns = where(is.numeric), decimals = 2) %>%
+  fmt_percent(columns = RE_percent, decimals = 1) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Sex_p, rows = Sex_p < 0.05)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Drug_p, rows = Drug_p < 0.05)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Sex_by_Drug_p, rows = Sex_by_Drug_p < 0.05)
+  ) %>%
+  tab_footnote(
+    footnote = paste("Shaded rows indicate that the % of variation explained by the PC is greater than ", PCvariationThreshold, "%, and their score and loading plots will be shown below.", sep = "")
+  ) %>%
+  tab_footnote(
+    footnote = paste("Bolded cells indicate a p-value less than 0.05.")
+  ) %>%
+  tab_footnote(
+    footnote = paste(litterMessageANOVA, "Nested model: If Interaction p-value is significant (alpha < 0.05), then the main effect p-values are from that interaction model. If the Interaction p-value is not significant, the the main effect p-values are from an additive model.", sep = " ")
+  )
+
+```
+
+## Principal Components Analysis
+```{r}
+source("principal components analysis.R")
+```
+
+Significant PCs, based off of an ANOVA.
+
+`r litterMessageANOVA`
+
+```{r}
+PC.description %>% 
+  dplyr::select(-c(PC_sort, RE_percent)) %>%
+  filter(PC.description$Sex_p <= 0.05 | PC.description$Drug_p <= 0.05 | PC.description$Sex_by_Drug_p <= 0.05) %>%
+  mutate(Percent_Var_Explained = Percent_Var_Explained/100) %>% # We will use the fmt_percent() to get this back
+  gt() %>%
+  tab_header(
+    title = "PCs with a significant ANOVA covariate (nested model)"
+  ) %>%
+  tab_spanner(
+    label = "ANOVA p-values",
+    columns = c(Sex_p, Drug_p, Sex_by_Drug_p)
+  ) %>%
+  cols_label(
+    Percent_Var_Explained = "% Variation Explained",
+    Sex_p = "Sex",
+    Drug_p = mapDrug,
+    Sex_by_Drug_p = paste("Sex x", mapDrug, sep = " ")
+  ) %>%
+  fmt_percent(columns = Percent_Var_Explained, decimals = 1) %>%
+  fmt_number(columns = c("Sex_p", "Drug_p", "Sex_by_Drug_p"), decimals = 2) %>%
+  tab_style(
+    style = list(cell_fill(color = "#F9E3D6")),
+    locations = cells_body(rows = Percent_Var_Explained > PCvariationThreshold/100)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Sex_p, rows = Sex_p < 0.05)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Drug_p, rows = Drug_p < 0.05)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Sex_by_Drug_p, rows = Sex_by_Drug_p < 0.05)
+  ) %>%
+  tab_footnote(
+    footnote = paste("Shaded rows indicate that the % of variation explained by the PC is greater than ", PCvariationThreshold, "%, and their score and loading plots will be shown below.", sep = "")
+  ) %>%
+  tab_footnote(
+    footnote = paste("Bolded cells indicate a p-value less than 0.05.")
+  ) %>%
+  tab_footnote(
+    footnote = paste(litterMessageANOVA, "Nested model: If Interaction p-value is significant (alpha < 0.05), then the main effect p-values are from that interaction model. If the Interaction p-value is not significant, the the main effect p-values are from an additive model.", sep = " ")
+  )
+```
+
+If the PC explains less than `r PCvariationThreshold`% of the variability, its Loadings and Scores are not plotted in the Significant PC Plots tab.
+
+For completeness, all PCs are shown below.
+
+```{r}
+# Not filtered
+PC.description %>% 
+  dplyr::select(-c(PC_sort, RE_percent)) %>%
+  mutate(Percent_Var_Explained = Percent_Var_Explained/100, # We will use the fmt_percent() to get this back
+         sum_Percent = cumsum(Percent_Var_Explained)) %>% 
+  gt() %>%
+  tab_header(
+    title = "PCs with a significant ANOVA covariate (nested model)"
+  ) %>%
+  cols_label(
+    Percent_Var_Explained = "% Variation Explained",
+    sum_Percent = "Cumulative % of Variation explained",
+    Sex_p = "Sex",
+    Drug_p = mapDrug,
+    Sex_by_Drug_p = paste("Sex x", mapDrug, sep = " ")
+  ) %>%
+  tab_spanner(
+    label = "ANOVA p-values",
+    columns = c(Sex_p, Drug_p, Sex_by_Drug_p)
+  ) %>%
+  fmt_percent(columns = c("Percent_Var_Explained", "sum_Percent"), decimals = 1) %>%
+  fmt_number(columns = c("Sex_p", "Drug_p", "Sex_by_Drug_p"), decimals = 2) %>%
+  tab_style(
+    style = list(cell_fill(color = "#F9E3D6")),
+    locations = cells_body(rows = Percent_Var_Explained > PCvariationThreshold/100 & (PC.description$Sex_p <= 0.05 | PC.description$Drug_p <= 0.05 | PC.description$Sex_by_Drug_p <= 0.05))
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Sex_p, rows = Sex_p < 0.05)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Drug_p, rows = Drug_p < 0.05)
+  ) %>%
+  tab_style(
+    style = list( cell_text(weight = "bold")),
+    locations = cells_body(columns = Sex_by_Drug_p, rows = Sex_by_Drug_p < 0.05)
+  ) %>%
+  tab_footnote(
+    footnote = paste("Shaded rows indicate that the % of variation explained by the PC is greater than ", PCvariationThreshold, "% with a significant model term, and their score and loading plots will be shown below.", sep = "")
+  ) %>%
+  tab_footnote(
+    footnote = paste("Bolded cells indicate a p-value less than 0.05.")
+  ) %>%
+  tab_footnote(
+    footnote = paste(litterMessageANOVA, "Nested model: If Interaction p-value is significant (alpha < 0.05), then the main effect p-values are from that interaction model. If the Interaction p-value is not significant, the the main effect p-values are from an additive model.", sep = " ")
+  )
+```
+
+## Pairwise comparisons for Significant PCs
+
+```{r}
+PC.pairwise.format <- as.data.frame(PC.pairwise %>%
+    filter(PC.description$Sex_p <= 0.05 | PC.description$Drug_p <= 0.05 | PC.description$Sex_by_Drug_p <= 0.05,
+           Percent_Var_Explained > PCvariationThreshold) %>%
+    mutate(Percent_Var_Explained = paste(round(Percent_Var_Explained, 2), "%", sep = ""),
+           Sex_p = as.character(round(Sex_p, 3)),
+           Drug_p = as.character(round(Drug_p, 3)),
+           Sex_by_Drug_p = as.character(round(Sex_by_Drug_p, 3)),
+           Effect = case_when(is.na(Sex_by_Drug_p) ~ "Additive", TRUE ~ "Interaction")) %>% 
+    dplyr::select(-c(PC_sort, RE_percent, Sex_p, Drug_p, Sex_by_Drug_p)) %>%
+    t() %>%
+    row_to_names(row_number=1)
+  )%>%
+  rownames_to_column(var="Label")
+
+
+PC.pairwise.format %>%
+  gt() %>%
+  tab_header(
+    title = "Tukey Pairwise Comparisons PCs with a significant ANOVA covariate (nested model)"
+  ) %>%
+  tab_style(
+    style = cell_text(align = "left"),
+    locations = cells_body(columns = everything())
+  ) %>%
+  tab_footnote(
+    footnote = paste(litterMessageANOVA, "Nested model: If Interaction p-value is significant (alpha < 0.05), then the main effect p-values are from that interaction model. If the Interaction p-value is not significant, the the main effect p-values are from an additive model.", sep = " ")
+  ) %>%
+  tab_footnote(
+    footnote = paste("Pairwise Testing: Tukey pairwise tests are done for sex within", mapDrug, "levels and for", mapDrug, "within sex.")
+  ) %>%
+  tab_footnote(
+    footnote = paste("**: p<0.01")
+  ) %>%
+  tab_footnote(
+    footnote = paste("*: p<0.05")
+  )
+```
+
+## Significant PC Plots
+
+The main two outputs from PCA are Loadings and Scores, with one loading and one set of scores per PC. Loadings are the directions of biggest spread in the data, or can be thought of as a set of weights for the variables. Scores are then the weighted sum of each individual animal's variable values.
+
+Let's say Animal A had values (a, b, c, ..., x, y, z), where each value is a different variable.
+
+Let's say the Loadings for PC1 are (0.20, 0.15, 0.10, ..., -0.05, -0.10, -0.20), where each value corresponds to a different variable.
+
+The Score for Animal A on PC1 then is
+0.20a + 0.15b + 0.10c + ... - 0.05x - 0.10y - 0.20z
+
+Hopefully this example will give context and understanding for the connection between the Loadings and Scores.
+
+```{r, fig.width = 7, fig.height = 8}
+
+for(i in 1:nrow(PC.description)) {
+  if(min(PC.description$Sex_p[i], 
+         PC.description$Drug_p[i], 
+         PC.description$Sex_by_Drug_p[i], na.rm = TRUE)<= 0.05 &
+     PC.description$Percent_Var_Explained[i] >= PCvariationThreshold){
+    
+    print(plotScores(PC.scores, i, "Sex_Colors", 
+                     round(PC.description$Percent_Var_Explained[i], 2)))
+    
+    if(nchar(mapLitter)>0){
+      print(plotScoresLitter(PC.scores, i, 
+                       round(PC.description$Percent_Var_Explained[i], 2)))
+    }
+    
+    print(plotLoadings(PC.loadings, i, "Parameter_Type_Color", 
+                       round(PC.description$Percent_Var_Explained[i], 2)))
+    
+    if(nrow(ANOVA_signif %>% filter(Sex_p<0.05))>0){
+      print(plotLoadings(PC.loadings, i, "Sex_Signif_Color", 
+                         round(PC.description$Percent_Var_Explained[i], 2)))
+    } else {
+      print("No significant sex effects in the variables. 
+            Loading plot colored by significant sex has no new information, so it is not shown.")
+    }
+    if(nrow(ANOVA_signif %>% filter(Drug_p<0.05))>0){
+      print(plotLoadings(PC.loadings, i, "Drug_Signif_Color", 
+                         round(PC.description$Percent_Var_Explained[i], 2)))
+    } else {
+      print(paste("No significant", mapDrug, "effects in the variables. 
+            Loading plot colored by significant", mapDrug, "has no new information, so it is not shown.", sep = " "))
+    }
+    if(nrow(ANOVA_signif %>% filter(Sex_by_Drug_p<0.05))>0){
+      print(plotLoadings(PC.loadings, i, "Sex_by_Drug_Signif_Color", 
+                         round(PC.description$Percent_Var_Explained[i], 2)))
+    } else {
+      print("No significant interaction effects in the variables. 
+            Loading plot colored by significant interaction has no new information, so it is not shown.")
+    }
+    
+   # print(PC.description[i,])
+  }
+}
+```
+
+## Other PC Plots
+
+```{r}
+PC.scores = PC.scores %>%
+  mutate(Sex_Drug = paste(Sex, Drug),
+         Sex_Drug = factor(Sex_Drug))
+
+n_levels = nlevels(PC.scores$Sex_Drug)
+SexDrug_levels = levels(PC.scores$Sex_Drug)
+SexDrug_colors = hcl.colors(n_levels, "viridis")
+SexDrug_int = as.data.frame(cbind(sort(SexDrug_levels), sort(SexDrug_colors)))
+names(SexDrug_int) = c("Sex_Drug", "colors")
+
+PC.scores = PC.scores %>%
+  merge(SexDrug_int, by = "Sex_Drug")
+
+```
+
+Below are plots of first three principal components. The first 3D plot is interactive; it can be clicked, dragged, and reoriented. The lower three plots show each of the first three PCs against the others.
+
+```{r}
+par3d(windowRect = c(100, 100, 450, 450))
+plot3d(
+  x = PC.scores$PC1,
+  y = PC.scores$PC2,
+  z = PC.scores$PC3,
+  type = "s",
+  radius = 1,
+  #type = "p",
+  #size = 10,
+  col = PC.scores$colors,
+  xlab = "PC1",
+  ylab = "PC2",
+  zlab = "PC3"
+)
+legend3d(# "topright", 
+         x = 0.1,
+         y = 0.95,
+         legend = as.vector(sort(SexDrug_levels)),
+         pch = 16, 
+         cex = 0.7,
+         col = as.vector(sort(SexDrug_colors)),
+         inset=c(0.02))
+
+rglwidget()
+```
+
+```{r}
+PC.scores %>%
+      ggplot(aes(x = PC1, y = PC2, color = colors)) +
+      geom_point(aes(shape=Sex),size = 5) +
+      scale_color_identity(guide = "legend", labels = SexDrug_levels) + 
+      theme(axis.text = element_text(size = 3)) +
+      labs(
+        x = "PC1",
+        y = "PC2",
+        title = "PC1 vs. PC2"
+      )
+PC.scores %>%
+      ggplot(aes(x = PC1, y = PC3, color = colors)) +
+      geom_point(aes(shape=Sex),size = 5) +
+      scale_color_identity(guide = "legend", labels = SexDrug_levels) + 
+      theme(axis.text = element_text(size = 3)) +
+      labs(
+        x = "PC1",
+        y = "PC3",
+        title = "PC1 vs. PC3"
+      )
+PC.scores %>%
+      ggplot(aes(x = PC2, y = PC3, color = colors)) +
+      geom_point(aes(shape=Sex),size = 5) +
+      scale_color_identity(guide = "legend", labels = SexDrug_levels) + 
+      theme(axis.text = element_text(size = 3)) +
+      labs(
+        x = "PC2",
+        y = "PC3",
+        title = "PC2 vs. PC3"
+      )
+```
+
+## Extra Statistical Details {.tabset}
+
+For completeness, there are a few extra outputs that are useful for statistical QC, particularly when there are litter effects present in the data.
+
+### % Variability explained by litter in raw data
+
+If litter effects are present, the following is a table with the percent of variability explained by the random litter effect in an interaction model with `r mapSex`, `r mapDrug`, and their interaction. If the percent of variability is less than 1%, then the values are not adjusted for litter.
+```{r}
+if(nchar(mapLitter)>0){
+  percent_litter %>% 
+    arrange(desc(perRandom_int)) %>%
+    mutate(adjusted = case_when(perRandom_int<1 ~ "Not adjusted", TRUE ~ "Yes"),
+      perRandom_int = paste(round(perRandom_int, 2), "%", sep = ""))%>%
+    ungroup() %>%
+    gt() %>%
+  cols_label(
+    GROUP = "Parameter and Unit",
+    perRandom_int = "% of Variability explained by Litter",
+    adjusted = "Raw values adjusted?"
+  )
+} else {
+  print("Not applicable - no litter effects")
+}
+```
+
+### Percent of variability explained by litter in ANOVA models on adjusted data
+
+These ANOVAs were done after the adjustments. We do not expect there to be big litter effects present. Models are nested ANOVAs (interaction first, if not significant, then additive).
+
+```{r}
+if(nchar(mapLitter)>0){
+  ANOVA_signif %>% 
+    arrange(desc(RE_percent)) %>%
+    mutate(RE_percent = paste(round(RE_percent, 2), "%", sep = ""))%>%
+    ungroup() %>%
+    gt() %>%
+    fmt_number(columns = c("Sex_p", "Drug_p", "Sex_by_Drug_p"), decimals = 2) %>%
+  cols_label(
+    RE_percent = "% Variation Explained by Litter",
+    Sex_p = "Sex",
+    Drug_p = mapDrug,
+    Sex_by_Drug_p = paste("Sex x", mapDrug, sep = " ")
+  ) %>%
+  tab_spanner(
+    label = "ANOVA p-values",
+    columns = c(Sex_p, Drug_p, Sex_by_Drug_p)
+  ) 
+} else {
+  print("Not applicable - no litter effects")
+}
+```
+
+### Percent of Variability explained by litter in ANOVA models on PCs
+
+These ANOVAs, run on the principal components, were done after the adjustments. We do not expect there to be big litter effects present. Models are nested ANOVAs (interaction first, if not significant, then additive).
+
+```{r}
+if(nchar(mapLitter)>0){
+  PC.description %>% 
+    dplyr::select(-PC_sort) %>%
+    mutate(RE_percent = paste(round(RE_percent, 2), "%", sep = "")) %>%
+    gt() %>%
+    fmt_number(columns = c("Percent_Var_Explained", "Sex_p", "Drug_p", "Sex_by_Drug_p"), decimals = 2) %>%
+  cols_label(
+    Percent_Var_Explained = "% Variation Explained by PC",
+    RE_percent = "% Variation Explained by Litter",
+    Sex_p = "Sex",
+    Drug_p = mapDrug,
+    Sex_by_Drug_p = paste("Sex x", mapDrug, sep = " ")
+  ) %>%
+  tab_spanner(
+    label = "ANOVA p-values",
+    columns = c(Sex_p, Drug_p, Sex_by_Drug_p)
+  ) 
+} else {
+  print("Not applicable - no litter effects")
+}
+```
+
+
+# Output results
+
+While many of the results have been presented in graphical or tabular form here, it may be useful to see them in table form. You can find them in `r outputPath``r titleName`_PCASuite_`r Sys.Date()`.xlsx.
+```{r}
+sheets = list(
+  "Corr Full Long" = corr_matrix_export_long,
+  "ANOVA and Pairwise" = ANOVA_pairwise,
+  "PCA Pairwise" = PC.pairwise,
+  "PCA Scores" = PC.scores,
+  "PCA Loadings" = PC.loadings,
+  "Parameter Metadata" = Parameter_Metadata
+)
+if(mapLitter!=""){
+  sheets = append(
+    sheets, 
+    list("Percent Litter Raw" = percent_litter)
+    )
+}
+
+write_xlsx(sheets, path = paste(outputPath, titleName, "_PCASuite_", Sys.Date(), ".xlsx", sep = ""))
+```
