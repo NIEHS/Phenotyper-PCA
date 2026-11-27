@@ -1,5 +1,5 @@
 # Functions
-applyANOVA <- function(data, covar1, covar2, response, group, LITTER = FALSE) {
+applyANOVA <- function(data, covar1, covar2, response, group, adjustment="none", LITTER = FALSE) {
   if(LITTER == FALSE){
     analysis_set = data %>%
       dplyr::select(all_of(c(covar1, covar2, response, group))) %>%
@@ -71,15 +71,23 @@ applyANOVA <- function(data, covar1, covar2, response, group, LITTER = FALSE) {
   analysis_set$covar2_p = covar2_p
   analysis_set$RE_percent = RE_percent
   
+  # Add adjusted p-values
+  analysis_set$covar1_padj = p.adjust(analysis_set$covar1_p, adjustment)
+  analysis_set$covar2_padj = p.adjust(analysis_set$covar2_p, adjustment)
+  analysis_set$int_padj = p.adjust(analysis_set$int_p, adjustment)
+  
   
   name1 = paste(covar1, "_p", sep = "")
   name2 = paste(covar2, "_p", sep = "")
   nameInt = paste(covar1,"_by_", covar2, "_p", sep = "")
+  name1adj = paste(covar1, "_padj", sep = "")
+  name2adj = paste(covar2, "_padj", sep = "")
+  nameIntadj = paste(covar1,"_by_", covar2, "_padj", sep = "")
   output_set <- analysis_set %>%
-    dplyr::select(GROUP, covar1_p, covar2_p, int_p, RE_percent) %>%
+    dplyr::select(GROUP, covar1_p, covar2_p, int_p, covar1_padj, covar2_padj, int_padj, RE_percent) %>%
     mutate(int_p = case_when(int_p<=0.05 ~ int_p,
                              TRUE ~ NA))
-  names(output_set) = c(group, name1, name2, nameInt, "RE_percent")
+  names(output_set) = c(group, name1, name2, nameInt, name1adj, name2adj, nameIntadj, "RE_percent")
   
   return(output_set)
 }
@@ -235,6 +243,7 @@ assign_input_variables <- function(){
   mapVariable <<- getInput("mapVariable")
   mapValue <<- getInput("mapValue")
   mapLitter <<- getInput("mapLitter")
+  mapMTCadj <<- getInput("mapMTCadj")
 }
 
 getInput <- function(variableName){
@@ -272,23 +281,50 @@ plotLoadings <- function(data, PC_num, color_scheme, title_string) {
   List_Index = which(unlist(lapply(Colors_List[[1]], function(x) x==color_scheme))) # Pulls the Index to use for the color legend labels
   color_fill = Colors_List[[2]][[List_Index]]
   color_names = Colors_List[[3]][[List_Index]]
+  color_outline = Colors_List[[4]][[List_Index]]
+  color_outlineNames = Colors_List[[5]][[List_Index]]
+  outline_scheme = Colors_List[[6]][[List_Index]]
   
-  plot_set = data[,c(paste("PC", PC_num, sep = ""), "Variable", color_scheme)] 
-  names(plot_set) = c("Loading", "Variable", color_scheme)
-  plot_set %>%
-    ggplot(aes(x = Loading, y = reorder(Variable, Loading), fill = get(color_scheme))) +
-    geom_bar(stat = "identity") +
-    geom_text(aes(label = Variable), size = 1.75, hjust = "inward") +
-    scale_fill_identity(guide = "legend", labels = color_names) +
-    guides(fill = guide_legend(
-      title = "",
-      override.aes = list(fill = c(color_fill))
-    )) +
-    theme(axis.text.y = element_blank(),
-          legend.position = "bottom") + 
-    labs(title = paste("Loading Plot for PC ", PC_num, ", which explains ", title_string, "% of variation", sep = ""),
-         x = "Loading Magnitude",
-         y = "Variable")
+  if (!is.na(outline_scheme)){
+    plot_set = data[,c(paste("PC", PC_num, sep = ""), "Variable", color_scheme, outline_scheme)] 
+    names(plot_set) = c("Loading", "Variable", color_scheme, outline_scheme)
+    output <- plot_set %>%
+      ggplot(aes(x = Loading, y = reorder(Variable, Loading), fill = get(color_scheme))) +
+      geom_bar(aes(color = get(outline_scheme)), stat = "identity") +
+      geom_text(aes(label = Variable), size = 1.75, hjust = "inward") +
+      scale_fill_identity(guide = "legend", labels = color_names) +
+      scale_color_identity(guide = "legend", labels = color_outlineNames) +
+      guides(fill = guide_legend(
+        title = "",
+        override.aes = list(fill = color_fill)),
+        color = "none"
+      ) +
+      theme(axis.text.y = element_blank(),
+            legend.position = "bottom",
+            plot.caption = element_text(hjust = 0)) + 
+      labs(title = paste("Loading Plot for PC ", PC_num, ", which explains ", title_string, "% of variation", sep = ""),
+           x = "Loading Magnitude",
+           y = "Variable",
+           caption = paste("Black outline indicates significance under ", mapMTCadj, " correction", sep = ""))
+  } else {
+    plot_set = data[,c(paste("PC", PC_num, sep = ""), "Variable", color_scheme)] 
+    names(plot_set) = c("Loading", "Variable", color_scheme)
+    output <- plot_set %>%
+      ggplot(aes(x = Loading, y = reorder(Variable, Loading), fill = get(color_scheme))) +
+      geom_bar(stat = "identity") +
+      geom_text(aes(label = Variable), size = 1.75, hjust = "inward") +
+      scale_fill_identity(guide = "legend", labels = color_names) +
+      guides(fill = guide_legend(
+        title = "",
+        override.aes = list(fill = color_fill))
+      ) +
+      theme(axis.text.y = element_blank(),
+            legend.position = "bottom") + 
+      labs(title = paste("Loading Plot for PC ", PC_num, ", which explains ", title_string, "% of variation", sep = ""),
+           x = "Loading Magnitude",
+           y = "Variable")
+  }
+  return(output)
 }
 
 plotScores = function(data, PC_num, color_scheme, title_string){
@@ -390,12 +426,7 @@ adjustValuesForLitter <- function(data){
     dplyr::select(GROUP, `(Intercept)`, Litter, perRandom_int, int_p) %>%
     rename("Int_RE" = "(Intercept)"
     ) %>%
-    # Use the interaction model adjustments if appropriate
-    # Use the additive model adjustments otherwise
-    # If the percent of variation explained by the random effect (from the appropriate model) is at least 1%, then use the adjustment. 
-    # Otherwise, no adjustment (adjustment = 0)
-    mutate(Adjustment = case_when(perRandom_int>1 ~ Int_RE,
-                                  perRandom_int<=1 ~ 0)) %>%
+    mutate(Adjustment = 0) %>%
     dplyr::select(GROUP, Litter, Adjustment)
   
   full_adj <- full %>%
@@ -405,61 +436,5 @@ adjustValuesForLitter <- function(data){
     rename("Value" = "Value_Adj")
   
   return(list(full_adj, percent_litter))
-  
-}
-
-
-adjustValuesForLitter_addAndInt <- function(data){
-  # Determine which model to use
-  analysis_set <- data %>%
-    dplyr::select(all_of(c("Sex", "Drug", "Value", "Parameter and Unit", "Litter"))) %>%
-    rename("COVAR1" = all_of("Sex"),
-           "COVAR2" = all_of("Drug"),
-           "RESPONSE" = all_of("Value"),
-           "GROUP" = all_of("Parameter and Unit")) %>%
-    group_by(GROUP) %>%
-    nest() %>%
-    mutate(int_aov = map(data, ~anova(lme(RESPONSE ~ COVAR1 * COVAR2, random=~1|Litter, data=.x))),
-           add_aov = map(data, ~anova(lme(RESPONSE ~ COVAR1 + COVAR2, random=~1|Litter, data=.x))),
-           int_model = map(data, ~lme(RESPONSE ~ COVAR1 * COVAR2, random=~1|Litter, data=.x)),
-           add_model = map(data, ~lme(RESPONSE ~ COVAR1 + COVAR2, random=~1|Litter, data=.x)),
-           re_int = map(int_model, ~ as.data.frame(random.effects(.x)) %>% mutate(Litter = rownames(random.effects(.x)))),
-           re_add = map(add_model, ~ as.data.frame(random.effects(.x)) %>% mutate(Litter = rownames(random.effects(.x)))),
-           var_int = map(int_model, ~VarCorr(.x)),
-           var_add = map(add_model, ~VarCorr(.x)),
-           perRandom_int = 100*as.numeric(var_int[[1]][1, "Variance"])/(as.numeric(var_int[[1]][1, "Variance"]) + as.numeric(var_int[[1]][2, "Variance"])),
-           perRandom_add = 100*as.numeric(var_add[[1]][1, "Variance"])/(as.numeric(var_add[[1]][1, "Variance"]) + as.numeric(var_add[[1]][2, "Variance"]))
-    )
-  # Pull out the interaction p-value
-  p = c()
-  for(i in 1:nrow(analysis_set)) {
-    int_p = analysis_set[[3]][[i]][4,4] # This is the p-value of the interaction term
-    p = c(p, int_p)
-  }
-  analysis_set$int_p = p
-  
-  analysis_set_2 <- analysis_set %>%
-    unnest(re_int, re_add) %>%
-    dplyr::select(GROUP, `(Intercept)`, Litter, `(Intercept)1`, perRandom_int, perRandom_add, int_p) %>%
-    rename("Int_RE" = "(Intercept)",
-           "Add_RE" = "(Intercept)1"
-    ) %>%
-    # Use the interaction model adjustments if appropriate
-    # Use the additive model adjustments otherwise
-    # If the percent of variation explained by the random effect (from the appropriate model) is at least 1%, then use the adjustment. 
-    # Otherwise, no adjustment (adjustment = 0)
-    mutate(Adjustment = case_when(int_p<0.05 & perRandom_int>1 ~ Int_RE,
-                                  int_p<0.05 & perRandom_int<=1 ~ 0,
-                                  int_p>=0.05 & perRandom_add>1 ~ Add_RE,
-                                  int_p>= 0.05 & perRandom_add<=1 ~ 0)) %>%
-    dplyr::select(GROUP, Litter, Adjustment)
-  
-  full_adj <- full %>%
-    merge(analysis_set_2, by.x = c("Parameter and Unit", "Litter"), by.y = c("GROUP", "Litter"), all.x = TRUE) %>%
-    mutate(Value_Adj = Value - Adjustment) %>%
-    dplyr::select(-Value) %>%
-    rename("Value" = "Value_Adj")
-  
-  return(full_adj)
   
 }
