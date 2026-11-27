@@ -1,10 +1,7 @@
 # --------------------------------------
-# Terbufos and Chlorpyrifos
-#
 #
 # Preparation Data
 #
-# 30 July 2025
 # --------------------------------------
 
 # Dataset made by combining 
@@ -39,11 +36,8 @@ if(nchar(mapLitter)>0){
   temp <- adjustValuesForLitter(full)[[1]] 
   percent_litter <- adjustValuesForLitter(full)[[2]]
   full <- temp
-  # First indexed output is the dataset with adjusted values
-  # Second indexed output is a dataset with the percent of variability explained by litter
-  # This REPLACES the original values with values adjusted for the litter!
-  litterMessage <- "This dataset has litter effects. To account for this, before any analysis or output is done, the values are adjusted to remove the litter effect. Raw data values are fit with sex, group, and their interaction, with a random effect for litter. If the random effect explains at least 1% of the variability, then the model's litter estiamte is subtracted from the raw values."
-  litterMessageANOVA <- "ANOVA models done with a random effect for litter, though data going into model was pre-adjusted for litter."
+  litterMessage <- "This dataset has litter effects"
+  litterMessageANOVA <- "ANOVA models done with a random effect for litter."
   } else {
   litterMessage <- ""
   litterMessageANOVA <- ""
@@ -116,6 +110,7 @@ ANOVA_signif <- applyANOVA(data = full,
                            covar2 = "Drug",  
                            response = "Value", 
                            group = "Parameter and Unit",
+                           adjustment = mapMTCadj,
                            LITTER = nchar(mapLitter)>0) # Runs with litter effects if TRUE otherwise no litter effects
 
 ANOVA_pairwise <- applyPairwise(full, ANOVA_signif, "Parameter and Unit", "Value")
@@ -127,20 +122,33 @@ ANOVA_Signif_Colors <- ANOVA_signif %>%
          Drug_Signif_Color = case_when(Drug_p <= 0.05 ~ "blue",
                                        TRUE ~ base_color),
          Sex_by_Drug_Signif_Color = case_when(Sex_by_Drug_p <= 0.05 ~ "purple",
-                                              TRUE ~ base_color)) %>%
-  dplyr::select(`Parameter and Unit`, Sex_Signif_Color, Drug_Signif_Color, Sex_by_Drug_Signif_Color)
+                                              TRUE ~ base_color),
+         Sex_Signif_Adj = case_when(Sex_padj <= 0.05 ~ "black",
+                                      TRUE ~ NA),
+         Drug_Signif_Adj = case_when(Drug_padj <= 0.05 ~ "black",
+                                       TRUE ~ NA),
+         Sex_by_Drug_Signif_Adj = case_when(Sex_by_Drug_padj <= 0.05 ~ "black",
+                                              TRUE ~ NA)) %>%
+  dplyr::select(`Parameter and Unit`, Sex_Signif_Color, Drug_Signif_Color, Sex_by_Drug_Signif_Color, 
+                Sex_Signif_Adj, Drug_Signif_Adj, Sex_by_Drug_Signif_Adj)
 
 Sex_Signif_Color_colList = c("red", base_color)
 Sex_Signif_Color_nameList = c("Significant Sex Effect", "N.S.")
 Sex_Signif_Color_List = list("Sex_Signif_Color", Sex_Signif_Color_colList, Sex_Signif_Color_nameList)
+Sex_Signif_Adj_colList = c("black", "white")
+Sex_Signif_Adj_nameList = c(paste("Significant Effect under ", mapMTCadj, sep = ""), "N.S.")
 
 Drug_Signif_Color_colList = c("blue", base_color)
 Drug_Signif_Color_nameList = c(paste("Significant", mapDrug, "Effect", sep = " "), "N.S.")
 Drug_Signif_Color_List = list("Drug_Signif_Color", Drug_Signif_Color_colList, Drug_Signif_Color_nameList)
+Drug_Signif_Adj_colList = c("black", "white")
+Drug_Signif_Adj_nameList = c(paste("Significant Effect under ", mapMTCadj, sep = ""), "N.S.")
 
 Sex_by_Drug_Signif_Color_colList = c("purple", base_color)
 Sex_by_Drug_Signif_Color_nameList = c("Significant Interaction Effect", "N.S.")
 Sex_by_Drug_Signif_Color_List = list("Sex_by_Drug_Signif_Color", Sex_by_Drug_Signif_Color_colList, Sex_by_Drug_Signif_Color_nameList)
+Sex_by_Drug_Signif_Adj_colList = c("black", "white")
+Sex_by_Drug_Signif_Adj_nameList = c(paste("Significant Effect under ", mapMTCadj, sep = ""), "N.S.")
 
 #--------------#
 # Colors - Sex #
@@ -195,7 +203,10 @@ if(nchar(mapLitter) > 0){
 Colors_List = list(
   list("Parameter_Type_Color", "Sex_Signif_Color", "Drug_Signif_Color", "Sex_by_Drug_Signif_Color", "Sex_Colors"),
   list(Parameter_Type_Colors_colList, Sex_Signif_Color_colList, Drug_Signif_Color_colList, Sex_by_Drug_Signif_Color_colList, Sex_Colors_colList),
-  list(Parameter_Type_Colors_nameList, Sex_Signif_Color_nameList, Drug_Signif_Color_nameList, Sex_by_Drug_Signif_Color_nameList, Sex_Colors_nameList)
+  list(Parameter_Type_Colors_nameList, Sex_Signif_Color_nameList, Drug_Signif_Color_nameList, Sex_by_Drug_Signif_Color_nameList, Sex_Colors_nameList),
+  list(NA, Sex_Signif_Adj_colList, Drug_Signif_Adj_colList, Sex_by_Drug_Signif_Adj_colList, NA),
+  list(NA, Sex_Signif_Adj_nameList, Drug_Signif_Adj_nameList, Sex_by_Drug_Signif_Adj_nameList, NA),
+  list(NA, "Sex_Signif_Adj", "Drug_Signif_Adj", "Sex_by_Drug_Signif_Adj", NA)
 )
 
 #-------------------------#
