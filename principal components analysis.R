@@ -41,6 +41,7 @@ PC.ANOVA <- applyANOVA(PC.scores_long,
            "Drug",
            "Score",
            "PC",
+           mapMTCadj,
            nchar(mapLitter)>0
            )
 PC.description <- PC.description %>% 
@@ -49,4 +50,3 @@ PC.description <- PC.description %>%
 
 
 PC.pairwise <- applyPairwise(PC.scores_long, PC.description, "PC", "Score")
-
